@@ -12,7 +12,7 @@ library(survminer)
 library(plotROC)
 library(TCGAbiolinks)
 library(SummarizedExperiment)
-
+library(broom)
 
 
 # Load Cohorts to be used in training the regression model
@@ -246,6 +246,11 @@ cox_multi <- coxph(Surv(time, status) ~ RiBi_status + sex + NPM1 + DNMT3A + IDH1
 summary(cox_multi)
 ggforest(cox_multi, data = meta_with_score, main = "Multivariable Cox Proportional Hazards Model")
 
+# Save the hazards ratio analysis
+
+cox_df <- tidy(cox_multi, exponentiate = TRUE, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high, p.value)
+write.csv(cox_df, 'cox_multi_training.csv')
 
 
 # Load and Process TCGA Data 
