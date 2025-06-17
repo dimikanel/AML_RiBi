@@ -1,5 +1,4 @@
-setwd('C:/Users/Dimitrios Kanellis/Dropbox/Backup/Data_ppt/AMLSM/Latest/GitHub_Ready')
-#setwd("C:/Users/Sofia/Dropbox/Backup/Data_ppt/AMLSM/Latest/GitHub_Ready")
+# Load relevant packages 
 
 # Load required libraries
 library(tidyverse)
