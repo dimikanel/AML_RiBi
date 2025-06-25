@@ -1,5 +1,4 @@
-#setwd('P:/C2_Bartek/Dimitris/Elements/Data/Omics/scRNA.AML.Lasry.et.al.2023')
-setwd('P:/Elements/Data/Omics/scRNA.AML.Lasry.et.al.2023')
+#Load relevant packages
 
 library(tidyverse)
 library(Seurat)
