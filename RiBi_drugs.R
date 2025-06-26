@@ -337,12 +337,20 @@ table(results_sign$Drug_Class, results_sign$RiBi_status, results_sign$Medium) # 
 
 write.csv(table(results_sign$Drug_Class, results_sign$RiBi_status, results_sign$Medium), 'Drug_class_RiBi_status_Medium.csv')
 
-# Focus on chemotherapeutics
+# Focus on specific drug classes 
+
+results_sign_kin_inh <- results_sign %>% filter(Drug_Class == 'Kinase inhibitor') # kinase inh per RiBi group
+table(results_sign_kin_inh$Drug_Sub_Class, results_sign_kin_inh$RiBi_status)
 
 results_sign_chemo <- results_sign %>% filter(Drug_Class == 'Chemotherapeutics') # Chemotherapeutics per RiBi group
 table(results_sign_chemo$Drug_Sub_Class, results_sign_chemo$RiBi_status)
 
+results_sign_diff <- results_sign %>% filter(Drug_Class == 'Differentiating/epigenetic modifier') # Differentiation inducer per RiBi group
+table(results_sign_diff$Drug_Sub_Class, results_sign_diff$RiBi_status)
+
+write.csv(table(results_sign_kin_inh$Drug_Sub_Class, results_sign_kin_inh$RiBi_status), 'Kin_inh_RiBi_status.csv')
 write.csv(table(results_sign_chemo$Drug_Sub_Class, results_sign_chemo$RiBi_status), 'Chemotherapeutics_RiBi_status.csv')
+write.csv(table(results_sign_diff$Drug_Sub_Class, results_sign_diff$RiBi_status), 'Diff_ind_RiBi_status.csv')
 
 
 # Focus on RiBi inhibitors 
