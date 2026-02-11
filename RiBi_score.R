@@ -1,7 +1,5 @@
-# Load relevant packages 
-
 # Load required libraries
-library(tidyverse)
+
 library(DESeq2)
 library(limma)
 library(umap)
@@ -13,7 +11,7 @@ library(plotROC)
 library(TCGAbiolinks)
 library(SummarizedExperiment)
 library(broom)
-
+library(tidyverse)
 
 # Load Cohorts to be used in training the regression model
 
@@ -38,9 +36,9 @@ beat_counts <- beat_counts  %>% dplyr::rename(ensembl_ID = X) %>%
   distinct(ensembl_ID, .keep_all = TRUE) %>% select(ensembl_ID,beat_meta$patient)
 
 
-finn_meta <- finn_meta %>% filter(!Disease_Status == "Healthy")
+finn_meta <- finn_meta %>% select(1:15) %>% filter(!Disease_Status == "Healthy")
 finn_counts <- finn_counts %>% dplyr::rename(ensembl_ID = X) %>%
-  distinct(ensembl_ID, .keep_all = TRUE) %>% select(ensembl_ID,finn_meta$patient)
+  distinct(ensembl_ID, .keep_all = TRUE) %>% select(ensembl_ID, finn_meta$patient)
 
 
 # Merge All Cohorts 
@@ -61,6 +59,7 @@ all_counts <- all_counts[, !duplicated(names(all_counts))]
 meta_all <- bind_rows(cs_meta, beat_meta, finn_meta) %>%
   distinct(patient, .keep_all = TRUE) %>%
   filter(patient %in% colnames(all_counts))
+
 
 
 # Align columns and rows
@@ -244,49 +243,58 @@ meta_with_score <- meta_with_score %>%
 cox_multi <- coxph(Surv(time, status) ~ RiBi_status + sex + NPM1 + DNMT3A + IDH1 + IDH2 + FLT3 + TP53 + age_group, data = meta_with_score)
 
 summary(cox_multi)
-ggforest(cox_multi, data = meta_with_score, main = "Multivariable Cox Proportional Hazards Model")
+ggforest(cox_multi, data = meta_with_score, main = "Multivariable Cox Proportional Hazards Model", fontsize = 1)
 
 # Save the hazards ratio analysis
 
 cox_df <- tidy(cox_multi, exponentiate = TRUE, conf.int = TRUE) %>%
   select(term, estimate, conf.low, conf.high, p.value)
+
 write.csv(cox_df, 'cox_multi_training.csv')
+
+
+# Add the ELN2022 classification and run the HR analysis (training set only)
+
+ELN2022_df <- read.csv('ELN2022_all.csv') %>% select(patient, eln2022)
+
+meta_with_score_ELN <- merge(meta_with_score, ELN2022_df, by = 'patient')
+cox_multi_ELN <- coxph(Surv(time, status) ~ RiBi_status + age_group + eln2022, data = meta_with_score_ELN)
+
+summary(cox_multi_ELN)
+ggforest(cox_multi_ELN, data = meta_with_score_ELN, main = "Multivariable Cox Proportional Hazards Model", fontsize = 1)
+
+
+# Save the hazards ratio analysis
+
+cox_df_eln <- tidy(cox_multi_ELN, exponentiate = TRUE, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high, p.value)
+write.csv(cox_df_eln, 'cox_multi_eln_training.csv')
+
 
 
 # Load and Process TCGA Data 
 
 
-# Expression data via TCGAbiolinks
-
-query <- GDCquery(
-  project = "TCGA-LAML",
-  data.category = "Transcriptome Profiling",
-  data.type = "Gene Expression Quantification",
-  workflow.type = "STAR - Counts"
-)
-
-GDCdownload(query)
-tcga_raw <- GDCprepare(query)
+TCGA_df <- readRDS("TCGA_LAML_STAR_survival.rds")
 
 # Extract and clean gene counts
 
-tcga_counts <- assay(tcga_raw) %>% as.data.frame() %>%
+tcga_counts <- TCGA_df$counts %>% as.data.frame() %>% slice(-(1:4)) %>% 
   rownames_to_column("ensgene") %>% mutate(ensgene = gsub("\\..*", "", ensgene)) %>%
   distinct(ensgene, .keep_all = TRUE) %>% column_to_rownames("ensgene")
 
-# Clean sample names
-
-colnames(tcga_counts) <- sub("^([A-Z0-9-]+?)-\\d{2}[A-Z]-\\d{2}[A-Z]-\\d{4}-\\d{2}$", "\\1", colnames(tcga_counts))
-
+colnames(tcga_counts)
+colnames(tcga_counts) <- str_remove(colnames(tcga_counts), "-[^-]+$")
+colnames(tcga_counts)
 
 # Load and Clean TCGA Metadata 
 
 # Clinical info
 
-tcga_meta <- read.delim("data_clinical_sample.txt", check.names = FALSE)
-colnames(tcga_meta) <- tcga_meta[4, ]
-tcga_meta <- tcga_meta[-(1:4), ]
-colnames(tcga_meta)[2] <- "patient"
+tcga_clin <- read.delim("data_clinical_sample.txt", check.names = FALSE)
+colnames(tcga_clin) <- tcga_clin[4, ]
+tcga_clin <- tcga_clin[-(1:4), ]
+colnames(tcga_clin)[2] <- "patient"
 
 # Mutation file
 
@@ -306,8 +314,8 @@ extract_status <- function(gene_symbol, colname) {
   mutate_column
 }
 
-tcga_meta <- tcga_meta %>% dplyr::select(patient)
-tcga_meta <- tcga_meta %>%
+tcga_clin <- tcga_clin %>% dplyr::select(patient)
+tcga_clin <- tcga_clin %>%
   extract_status("NPM1", "NPM1")() %>%
   extract_status("DNMT3A", "DNMT3A")() %>%
   extract_status("IDH1", "IDH1")() %>%
@@ -318,19 +326,17 @@ tcga_meta <- tcga_meta %>%
 # Load survival data
 
 
-tcga_raw <- read.delim("data_clinical_patient.txt", header = FALSE, stringsAsFactors = FALSE)
-colnames(tcga_raw) 
+tcga_clin_surv <- read.delim("data_clinical_patient.txt", header = FALSE, stringsAsFactors = FALSE)
+colnames(tcga_clin_surv) 
 
-colnames(tcga_raw) <- tcga_raw[5, ]
-tcga_raw <- tcga_raw[-(1:5), ]
-colnames(tcga_raw)
-str(tcga_raw)
+colnames(tcga_clin_surv) <- tcga_clin_surv[5, ]
+tcga_clin_surv <- tcga_clin_surv[-(1:5), ]
+colnames(tcga_clin_surv)
 
-colnames(tcga_raw) 
 
 # Drop APL and na samples
 
-tcga_surv <- tcga_raw %>% filter(!CYTOGENETIC_CODE_OTHER %in% c('PML-RARA', 'N.D.')) %>%
+tcga_clin_surv <- tcga_clin_surv %>% filter(!CYTOGENETIC_CODE_OTHER %in% c('PML-RARA', 'N.D.')) %>%
   dplyr::select(patient = PATIENT_ID,
                 OS_time = OS_MONTHS,
                 OS_status = OS_STATUS,
@@ -345,7 +351,7 @@ tcga_surv <- tcga_raw %>% filter(!CYTOGENETIC_CODE_OTHER %in% c('PML-RARA', 'N.D
 
 # Merge survival, mutation, cohort
 
-tcga_meta <- inner_join(tcga_meta, tcga_surv, by = "patient") %>%
+tcga_meta <- inner_join(tcga_clin, tcga_clin_surv, by = "patient") %>%
   mutate(cohort = "TCGA", Disease_Status = "Disease", stage = 'Initial Diagnosis') %>%
   dplyr::select(patient, time, status, cohort, Disease_Status, sex, age,
                 NPM1, DNMT3A, IDH1, IDH2, FLT3, TP53, stage)
@@ -362,13 +368,10 @@ write.csv(tcga_counts, 'tcga_counts.csv')
 write.csv(tcga_meta, 'tcga_meta.csv')
 
 
-#tcga_counts <- read.csv('tcga_counts.csv', row.names = 1, check.names = FALSE)
-#tcga_meta <- read.csv('tcga_meta.csv')
-
 # Normalize TCGA 
 
 dds_tcga <- DESeqDataSetFromMatrix(
-  countData = round(tcga_counts),
+  countData = round(as.matrix(tcga_counts)),
   colData = tcga_meta %>% column_to_rownames("patient"),
   design = ~ 1)
 
@@ -424,21 +427,22 @@ print(roc_plot)
 
 
 tcga_eval$time <- as.numeric(tcga_eval$time)
-dependent_os <- "Surv(time, status)"
+tcga_eval$year <- as.numeric(tcga_eval$time/12)
+dependent_os <- "Surv(year, status)"
 explanatory <- "RiBi_status"
 tcga_eval %>% surv_plot(dependent_os, explanatory, pval = TRUE)
-subset(tcga_eval, time < 12*5) %>% surv_plot(dependent_os, explanatory, pval = TRUE)
+subset(tcga_eval, year < 5) %>% surv_plot(dependent_os, explanatory, pval = TRUE)
 
 
 # Statistics (5y survval)
 
-survdiff(Surv(time, status) ~ RiBi_status, data = subset(tcga_eval, time < 12*5))
-pairwise_survdiff(Surv(time, status) ~ RiBi_status, data = subset(tcga_eval, time < 12*5))
-coxph(Surv(time, status) ~ RiBi_status, data = subset(tcga_eval, time < 12*5))
+survdiff(Surv(time, status) ~ RiBi_status, data = subset(tcga_eval, year < 5))
+pairwise_survdiff(Surv(time, status) ~ RiBi_status, data = subset(tcga_eval, year < 5))
+coxph(Surv(time, status) ~ RiBi_status, data = subset(tcga_eval, year < 5))
 
 
 
-## Multivariate COX analysis for TCGA
+# Multivariate COX analysis for TCGA
 
 # Ensure age is numeric
 
@@ -451,16 +455,6 @@ median_age_tcga <- median(tcga_eval$age, na.rm = TRUE)
 tcga_eval <- tcga_eval %>%
   mutate(age_group = ifelse(age >= median_age_tcga, "High", "Low")) %>%
   mutate(age_group = factor(age_group, levels = c("Low", "High")))
-
-# Convert relevant variables to factor (check that they exist in the dataset)
-
-tcga_eval <- tcga_eval %>%
-  mutate(across(c(RiBi_status, sex, NPM1, DNMT3A, IDH1, IDH2, FLT3, TP53), ~ as.factor(.), .names = "factor_{.col}"))
-
-# Rename factored columns if needed (or overwrite original columns)
-
-tcga_eval <- tcga_eval %>%
-  mutate(across(starts_with("factor_"), ~ ., .names = "{sub('factor_', '', .col)}"))
 
 
 write.csv(tcga_eval, 'meta_validation.csv')
@@ -479,6 +473,56 @@ ggforest(cox_multi_tcga, data = tcga_eval, main = "Multivariable Cox Proportiona
 
 
 
+# Merge all samples (training, validation) and run the multivariate COX
+
+colnames(meta_with_score)
+colnames(tcga_eval)
+
+meta_with_score_1 <- meta_with_score %>% select(-X)
+
+colnames(meta_with_score_1)
+colnames(tcga_eval)
+
+meta_with_score_1$year <- as.numeric(meta_with_score_1$time/365)
+colnames(meta_with_score_1)
+colnames(tcga_eval)
+
+meta_with_score_2 <- meta_with_score_1 %>% select(1:16,18,17)
+colnames(meta_with_score_2)
+colnames(tcga_eval)
+
+all_meta <- rbind(meta_with_score_2, tcga_eval)
+
+
+# Fit Cox proportional hazards model
+
+cox_all_meta <- coxph(Surv(time, status) ~ RiBi_status + sex + NPM1 + DNMT3A + IDH1 + IDH2 + FLT3 + TP53 + age_group, data = all_meta)
+
+summary(cox_all_meta)
+ggforest(cox_all_meta, data = meta_with_score, main = "Multivariable Cox Proportional Hazards Model", fontsize = 1)
+
+# Save the hazards ratio analysis
+
+cox_df_all_meta <- tidy(cox_all_meta, exponentiate = TRUE, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high, p.value)
+write.csv(cox_df_all_meta, 'cox_df_all_meta.csv')
+
+
+# Repeat with ENL2022 
+
+all_meta_ELN <- merge(all_meta, ELN2022_df, by = 'patient')
+
+cox_all_meta_ELN <- coxph(Surv(year, status) ~ RiBi_status + age_group + eln2022, data = all_meta_ELN)
+
+summary(cox_all_meta_ELN)
+ggforest(cox_all_meta_ELN, data = all_meta_ELN, main = "Multivariable Cox Proportional Hazards Model", fontsize = 1)
+
+
+# Save the hazards ratio analysis
+
+cox_df_all_meta_eln <- tidy(cox_all_meta_ELN, exponentiate = TRUE, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high, p.value)
+write.csv(cox_df_all_meta_eln, 'cox_df_all_meta_eln.csv')
 
 
 
@@ -487,13 +531,14 @@ ggforest(cox_multi_tcga, data = tcga_eval, main = "Multivariable Cox Proportiona
 
 beat_treat <- read.delim("beataml_wv1to4_clinical.txt") %>%
   select(dbgap_rnaseq_sample, cumulativeTreatmentTypes) %>%
-  dplyr::rename(patient = dbgap_rnaseq_sample) %>% filter(!patient == '')
+  rename(patient = dbgap_rnaseq_sample)
+
+table(beat_treat$cumulativeTreatmentTypes)
 
 beat_pred_df <- left_join(beat_treat, meta_with_score, by = "patient") %>%
-  filter(!is.na(cumulativeTreatmentTypes), cumulativeTreatmentTypes != "", !is.na(time)) %>%
-  group_by(cumulativeTreatmentTypes) %>%
-  filter(n() > 20) %>% 
-  ungroup() %>% as.data.frame()
+  filter(!is.na(cumulativeTreatmentTypes), cumulativeTreatmentTypes != "") %>% 
+  filter(cumulativeTreatmentTypes %in% c('Standard Chemotherapy', 'Standard Chemotherapy|Bone Marrow Transplant')) %>%
+  mutate(years = time / 365)
   
 
 # Kaplan-Meier treatment per RiBi groups
@@ -520,6 +565,5 @@ surv_pvalue(fit_treat_2)
 
 beat_pred_df %>% finalfit(dependent_os, explanatory)
 beat_pred_df %>% hr_plot(dependent_os, explanatory)
-
 
 
