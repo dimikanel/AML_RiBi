@@ -297,9 +297,8 @@ results_sign <- merge(results_sign, drugs_media, by = 'Patient', all.x = T)
 head(results_sign,3)
 
 # Add the RiBi status variable
-# Keep the RiBi score derived from our analysis, subset the FINN data and re-calculate quantiles within the subset cohort 
-# to tailor the "high," "moderate," and "low" definitions to the actual distribution of scores in the FINN cohort
-
+# Keep the RiBi score derived from our analysis and subset the FINN data .RiBi status (high/moderate/low) 
+# uses the 75th/25th percentiles of ALL cohorts (quantiles computed on the full table before subsetting)
 
 finn_meta <- read.csv('RiBi_score_all_samples.csv') 
 finn_meta <- finn_meta %>% filter(cohort == 'FINN') %>% select(2:16) %>%  
