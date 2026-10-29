@@ -134,7 +134,7 @@ title("Coefficient Paths")
 # Requires glmnet 4.1-8 (see README). Fixed folds reproduce the published 31-gene signature.
 
 set.seed(1)
-cvfit <- cv.glmnet(as.matrix(x), as.matrix(y), family = "cox", foldid = readRDS("RiBi_foldid.rds"))
+cvfit <- cv.glmnet(as.matrix(x), as.matrix(y), family = "cox")
 
 # Partial likelihood deviance vs. log(lambda)
 
